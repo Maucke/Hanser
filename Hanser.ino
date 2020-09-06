@@ -1,24 +1,34 @@
-#include <ESP8266WiFi.h> 
-#include <ESP8266HTTPClient.h> 
+#include <WiFiManager.h> // https://github.com/tzapu/WiFiManager
 #include <ArduinoJson.h>
-#include <DYWiFiConfig.h>
-#include "Ticker.h" //引入调度器头文件
+#include <ESP8266HTTPClient.h> 
+#include <Ticker.h>
 
-Ticker myTicker; //建立一个需要定时调度的对象
-DYWiFiConfig wificonfig;
-ESP8266WebServer webserver(80);
-#define DEF_WIFI_SSID        "306Lifi"
-#define DEF_WIWI_PASSWORD     "sss11223344."
-#define AP_NAME           "FunnyChip" //dev
+Ticker ticker;
+Ticker binker;
+Ticker shaker;
+
+void ICACHE_RAM_ATTR keyHandle();
+void ICACHE_RAM_ATTR tickerHandle();
+void ICACHE_RAM_ATTR binkerHandle();
+void ICACHE_RAM_ATTR shakeHandle();
+
+#ifndef LED_BUILTIN
+#define LED_BUILTIN 13 // ESP32 DOES NOT DEFINE LED_BUILTIN
+#endif
+
+#define KEY_MENU 5
+#define KEY_SW 4
+#define KEY_MODE 0
+
+int keypress = 0;
+int shake = 0;
+int LED = LED_BUILTIN;
+
 char Address[7] = "110000";
 char Key[33] = "ac2f3457cc2d7928a8b4600e9759be1a";
-//char Bid[9] = "49890113";
 char Bid[20] = "49890113";
+
 int WeatherCount = 3;
-
-char  assid[20]=     "306Lifi";
-char  apassword[22]= "sss11223344.";
-
 #define IntTime     1
 
 #define ESP_WeatherNum      0x400
@@ -126,8 +136,6 @@ String ConvertWeather(String data_content)
     "严重霾", "热", "冷", "未知" };
   for (i = 0; i < 68; i++) {
 
-    //Serial.println(data_content+" "+ weather_phenomena1[i]);
-
     if (data_content.equals(weather_phenomena1[i])) {
       break;
     }
@@ -188,6 +196,7 @@ String ConvertWindDir(String data_content)
   case 10:return "Unknown";
   }
 }
+
 
 //****获取天气子函数 
 void get_weather() {
@@ -344,6 +353,7 @@ int week(int y, int m, int d)
   if (m == 1 || m == 2) m += 12, y = y - 1;
   return (d + 2 * m + 3 * (m + 1) / 5 + y + y / 4 - y / 100 + y / 400 + 1) % 7;
 }
+
 //****获取时间子函数
 void get_time() {
   if (WiFi.status() == WL_CONNECTED) { //如果 Wi-Fi 连接成功
@@ -358,9 +368,10 @@ void get_time() {
       DynamicJsonBuffer jsonBuffer(capacity);
 
       JsonObject& root = jsonBuffer.parseObject(http.getString());
-
+//      Serial.println(http.getString());
       const char* sysTime1 = root["sysTime1"]; // "20190419131920"
       String now_time = sysTime1;
+//      Serial.println(sysTime1);
       display_year = (now_time.substring(0, 4)).toInt();
       display_month = (now_time.substring(4, 6)).toInt();
       display_day = (now_time.substring(6, 8)).toInt();
@@ -422,39 +433,11 @@ void get_fans() {
   }
   delay(10);
 }
-// Visual Micro is in vMicro>General>Tutorial Mode
-// 
-/*
-Name:       Hanser.ino
-Created:  2019/9/13 17:53:08
-Author:     DESKTOP-KE6HV16\77249
-*/
-
-// Define User Types below here or use a .h file
-//
 
 
-// Define Function Prototypes that use User Types below here or use a .h file
-//
-
-
-// Define Functions below here or use other .ino or cpp files
-//
-
-
-void connectwifi() {
-  wificonfig.begin(&webserver, "/");
-  DYWIFICONFIG_STRUCT defaultConfig = wificonfig.createConfig();
-  strcpy(defaultConfig.SSID, DEF_WIFI_SSID);
-  strcpy(defaultConfig.SSID_PASSWORD, DEF_WIWI_PASSWORD);
-  strcpy(defaultConfig.HOSTNAME, AP_NAME);
-  strcpy(defaultConfig.APNAME, AP_NAME);
-  wificonfig.setDefaultConfig(defaultConfig);
-  wificonfig.enableAP();
-}
 
 #define DATA_PACKAGE_MIN_LEN    5
-#define DATA_PACKAGE_MAX_LEN    512
+#define DATA_PACKAGE_MAX_LEN    1024
 #define DATA_PACKAGE_FFT_LEN    200
 // 同步帧头
 #define CMD_HEAD1 0xFF
@@ -494,40 +477,117 @@ void USART_Handler(void)                   //串口1中断服务程序
 void AnalysisYousamsg(uint8_t *Buf)
 {
   int i;
-  //  if(Buf[0] == CMD_HEAD1 &&Buf[1] == CMD_HEAD2)
   {
-    {
       switch (MAKEWORD(Buf[3], Buf[2]))
       {
       case CMD_Address: for (i = 0; i < Buf[4]; i++) Address[i] = Buf[i + 5]; WeatherCount = 1; break;
       case CMD_BiliID:memset(&Bid, 0, sizeof(Bid)); for (i = 0; i<Buf[4]; i++) Bid[i] = Buf[i + 5]; break;
       case CMD_Weather: WeatherCount = MAKEWORD(Buf[6], Buf[5]); break;
       }
+  }
+}
+
+void keyHandle() {
+  if (shake<1)
+  {
+    if (digitalRead(KEY_SW) == LOW)
+    {
+      shake = 6;
+      keypress = 1;
+    }
+    if (digitalRead(KEY_MENU) == LOW)
+    {
+      shake = 6;
+      keypress = 2;
+    }
+    if (digitalRead(KEY_MODE) == LOW)
+    {
+      shake = 6;
+      keypress = 3;
     }
   }
 }
 
-#define KEY_MENU 5
-#define KEY_SW 4
-#define KEY_MODE 0
-
-void ICACHE_RAM_ATTR keyHandle();
-void ICACHE_RAM_ATTR tickerHandle();
-// The setup() function runs once each time the micro-controller starts
-void setup()
+void get_key()
 {
-  Serial.begin(115200);
-  connectwifi();
-  Serial.println("Connecting..");
-  while (WiFi.status() != WL_CONNECTED)
-  { //等待wifi连接
-    wificonfig.handle();
-//  delay(2);
-//  Serial.println("Connecting");
+  
+  switch (keypress)
+  {
+  case 1:SendInter(ESP_KEY_SW, 1); break;
+  case 2:SendInter(ESP_KEY_MENU, 1); break;
+  case 3:SendInter(ESP_KEY_MODE, 1); break;
   }
-  Serial.println("Connected");
-  wificonfig.disableAP();
-//WiFi.begin(assid,apassword);
+  keypress = 0;
+}
+bool TimeFlag = false;
+bool WeatherFlag = false;
+
+void tickerHandle() //到时间时需要执行的任务
+{
+	static int rollcount=0;
+//    Serial.println(millis()); //打印当前时间
+if(!(++rollcount)%60)
+	WeatherFlag = true;
+  TimeFlag = true;
+}
+
+void shakeHandle() //到时间时需要执行的任务
+{
+  if (shake>0)
+    shake--;
+}
+
+void binkerHandle()
+{
+  //toggle state
+  digitalWrite(LED, !digitalRead(LED));     // set pin to the opposite state
+}
+
+//gets called when WiFiManager enters configuration mode
+void configModeCallback (WiFiManager *myWiFiManager) {
+  Serial.println("Entered config mode");
+  Serial.println(WiFi.softAPIP());
+  //if you used auto generated SSID, print it
+  Serial.println(myWiFiManager->getConfigPortalSSID());
+  //entered config mode, make led toggle faster
+  ticker.attach_ms(200, binkerHandle);
+}
+
+void setup() {
+  WiFi.mode(WIFI_STA); // explicitly set mode, esp defaults to STA+AP
+  // put your setup code here, to run once:
+  Serial.begin(115200);
+  delay(1000);
+  //set led pin as output
+  pinMode(LED, OUTPUT);
+  // start ticker with 0.5 because we start in AP mode and try to connect
+  ticker.attach_ms(600, binkerHandle);
+
+  //WiFiManager
+  //Local intialization. Once its business is done, there is no need to keep it around
+  WiFiManager wm;
+  //reset settings - for testing
+  // wm.resetSettings();
+	wm.setConfigPortalTimeout(120);
+        //set callback that gets called when connecting to previous WiFi fails, and enters Access Point mode
+        wm.setAPCallback(configModeCallback);
+        //fetches ssid and pass and tries to connect
+        //if it does not connect it starts an access point with the specified name
+        //here  "AutoConnectAP"
+        //and goes into a blocking loop awaiting configuration
+        if (!wm.autoConnect("FUNNYCHIP")) {
+          
+          Serial.println("failed to connect and hit timeout");
+          //reset and try again, or maybe put it to deep sleep
+          ESP.restart();
+          delay(1000);
+        }
+  //if you get here you have connected to the WiFi
+  ticker.detach();
+  //keep LED on
+  digitalWrite(LED, LOW);
+  
+  
   pinMode(KEY_MENU, INPUT_PULLUP);
   attachInterrupt(KEY_MENU, keyHandle, CHANGE);
   pinMode(KEY_SW, INPUT_PULLUP);
@@ -538,69 +598,22 @@ void setup()
   get_time(); //开机取一次时间
   get_weather(); //开机取一次天气
   
-    myTicker.attach(1, tickerHandle); //初始化调度任务，每0.5秒执行一次tickerHandle()
+  binker.attach(1, tickerHandle); //初始化调度任务，每1秒执行一次tickerHandle()
+  shaker.attach_ms(10, shakeHandle); //初始化调度任务，每10毫秒执行一次shakeHandle()
 }
 
-int keypress = 0;
-int shake = 0;
-
-void keyHandle() {
-  if (shake<1)
-  {
-    if (digitalRead(KEY_SW) == LOW)
-    {
-      shake = 60;
-      keypress = 1;
-    }
-    if (digitalRead(KEY_MENU) == LOW)
-    {
-      shake = 60;
-      keypress = 2;
-    }
-    if (digitalRead(KEY_MODE) == LOW)
-    {
-      shake = 60;
-      keypress = 3;
-    }
-  }
-}
-
-void get_key()
-{
-  switch (keypress)
-  {
-  case 1:SendInter(ESP_KEY_SW, 1); break;
-  case 2:SendInter(ESP_KEY_MENU, 1); break;
-  case 3:SendInter(ESP_KEY_MODE, 1); break;
-  }
-  keypress = 0;
-}
-bool TimeFlag = false;
-
-void tickerHandle() //到时间时需要执行的任务
-{
-//    Serial.println(millis()); //打印当前时间
-  TimeFlag = true;
-}
-
-long ResetCount = 0;
-// Add the main program code into the continuous loop() function
-void loop()
-{
-  if (ResetCount++ % 360000 == 5)
-    WeatherCount = 1;
-  if (shake>0)
-    shake--;
+void loop() {
+  // put your main code here, to run repeatedly
   get_key();//检测按键按下情况
   if (TimeFlag)
   {
     TimeFlag = false;
     get_time();//获取时间
-    get_fans();//获取数据
+ //   get_fans();//获取数据
   }
-  if (WeatherCount > 0)
+  if (WeatherFlag)
   {
-    WeatherCount--;
+    WeatherFlag = false;
     get_weather();//获取天气
   }
   USART_Handler();
