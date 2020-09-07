@@ -2,11 +2,14 @@
 #include <ArduinoJson.h>
 #include <ESP8266HTTPClient.h> 
 #include <Ticker.h>
+#include <simpleDSTadjust.h>
+#include <EEPROM.h>
 
 Ticker ticker;
 Ticker binker;
 Ticker shaker;
 
+bool shouldSaveConfig = false;
 void ICACHE_RAM_ATTR keyHandle();
 void ICACHE_RAM_ATTR tickerHandle();
 void ICACHE_RAM_ATTR binkerHandle();
@@ -84,7 +87,7 @@ void SendString(unsigned int Address, String Data)
   unsigned char SendString[] = { 0xFF, 0x55, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
 
   SendString[2] = (Address >> 8) & 0xff;
-  SendString[3] = (Address)& 0xff;
+  SendString[3] = (Address) & 0xff;
   SendString[4] = Data.length();
   for (int i = 0; i < SendString[4]; i++)
   {
@@ -98,10 +101,10 @@ void SendInter(unsigned int Address, unsigned int Data)
   unsigned char SendInter[] = { 0xFF, 0x55, 0x00, 0x00, 0x02, 0x00, 0x00 };
 
   SendInter[2] = (Address >> 8) & 0xff;
-  SendInter[3] = (Address)& 0xff;
+  SendInter[3] = (Address) & 0xff;
 
   SendInter[5] = (Data >> 8) & 0xff;
-  SendInter[6] = (Data)& 0xff;
+  SendInter[6] = (Data) & 0xff;
 
   Serial.write(SendInter, 7);
 }
@@ -354,6 +357,24 @@ int week(int y, int m, int d)
   return (d + 2 * m + 3 * (m + 1) / 5 + y + y / 4 - y / 100 + y / 400 + 1) % 7;
 }
 
+#define NTP_SERVERS "0.ch.pool.ntp.org", "1.ch.pool.ntp.org", "2.ch.pool.ntp.org"
+#define UTC_OFFSET +7
+struct dstRule StartRule = { "CEST", Last, Sun, Mar, 2, 3600 }; // Central European Summer Time = UTC/GMT +2 hours
+struct dstRule EndRule = { "CET", Last, Sun, Oct, 2, 0 };       // Central European Time = UTC/GMT +1 hour
+simpleDSTadjust dstAdjusted(StartRule, EndRule);
+
+void updateNTP() {
+
+  configTime(UTC_OFFSET * 3600, 0, NTP_SERVERS);
+
+  delay(500);
+  while (!time(nullptr)) {
+    Serial.print("#");
+    delay(1000);
+  }
+}
+
+
 //****获取时间子函数
 void get_time() {
   if (WiFi.status() == WL_CONNECTED) { //如果 Wi-Fi 连接成功
@@ -368,10 +389,9 @@ void get_time() {
       DynamicJsonBuffer jsonBuffer(capacity);
 
       JsonObject& root = jsonBuffer.parseObject(http.getString());
-//      Serial.println(http.getString());
+
       const char* sysTime1 = root["sysTime1"]; // "20190419131920"
       String now_time = sysTime1;
-//      Serial.println(sysTime1);
       display_year = (now_time.substring(0, 4)).toInt();
       display_month = (now_time.substring(4, 6)).toInt();
       display_day = (now_time.substring(6, 8)).toInt();
@@ -396,7 +416,7 @@ void get_time() {
 
     }
     http.end();
-    delay(10);
+    delay(100);
   }
 }
 void get_fans() {
@@ -411,8 +431,8 @@ void get_fans() {
     http.begin(GetUrl);
     int httpCode = http.GET();
 
+    //    Serial.println(http.getString());
     if (httpCode == 200) {
-      //Serial.println("Get OK");
       String resBuff = http.getString();
       DynamicJsonBuffer jsonBuffer(200);
       JsonObject& root = jsonBuffer.parseObject(resBuff);
@@ -431,7 +451,7 @@ void get_fans() {
     }
     http.end();
   }
-  delay(10);
+  delay(100);
 }
 
 
@@ -458,51 +478,51 @@ void USART_Handler(void)                   //串口1中断服务程序
   while (Serial.available() > 0)
   {
     Uart_Recv_Data = (byte)Serial.read();
-//    Serial.println(Uart_Recv_Data);
+    //    Serial.println(Uart_Recv_Data);
     if (!Uart_Overflow_Flag)
     {
-      switch(Uart_Recv_Step)
+      switch (Uart_Recv_Step)
       {
-        case 0:if(Uart_Recv_Data==CMD_HEAD1) Uart_Recv_Step++; break;
-        case 1:if(Uart_Recv_Data==CMD_HEAD2) Uart_Recv_Step++; else Uart_Recv_Step=0;break;
-        case 2:Uart_Data[2] = Uart_Recv_Data; Uart_Recv_Step++;break;
-        case 3:Uart_Data[3] = Uart_Recv_Data; Uart_Recv_Step++;break;
-        case 4:Uart_Data[4] = Uart_Recv_Data; Uart_Recv_Step++;break;
-        case 5:Uart_Data[Uart_Recv_Count + DATA_PACKAGE_MIN_LEN] = Uart_Recv_Data; Uart_Recv_Count++;if(Uart_Recv_Count>=Uart_Data[4]) {Uart_Recv_Step = 0;Uart_Recv_Count = 0;AnalysisYousamsg(Uart_Data);}break;
+      case 0:if (Uart_Recv_Data == CMD_HEAD1) Uart_Recv_Step++; break;
+      case 1:if (Uart_Recv_Data == CMD_HEAD2) Uart_Recv_Step++; else Uart_Recv_Step = 0; break;
+      case 2:Uart_Data[2] = Uart_Recv_Data; Uart_Recv_Step++; break;
+      case 3:Uart_Data[3] = Uart_Recv_Data; Uart_Recv_Step++; break;
+      case 4:Uart_Data[4] = Uart_Recv_Data; Uart_Recv_Step++; break;
+      case 5:Uart_Data[Uart_Recv_Count + DATA_PACKAGE_MIN_LEN] = Uart_Recv_Data; Uart_Recv_Count++; if (Uart_Recv_Count >= Uart_Data[4]) { Uart_Recv_Step = 0; Uart_Recv_Count = 0; AnalysisYousamsg(Uart_Data); }break;
       }
     }
   }
 }
 
-void AnalysisYousamsg(uint8_t *Buf)
+void AnalysisYousamsg(uint8_t* Buf)
 {
   int i;
   {
-      switch (MAKEWORD(Buf[3], Buf[2]))
-      {
-      case CMD_Address: for (i = 0; i < Buf[4]; i++) Address[i] = Buf[i + 5]; WeatherCount = 1; break;
-      case CMD_BiliID:memset(&Bid, 0, sizeof(Bid)); for (i = 0; i<Buf[4]; i++) Bid[i] = Buf[i + 5]; break;
-      case CMD_Weather: WeatherCount = MAKEWORD(Buf[6], Buf[5]); break;
-      }
+    switch (MAKEWORD(Buf[3], Buf[2]))
+    {
+    case CMD_Address: for (i = 0; i < Buf[4]; i++) Address[i] = Buf[i + 5]; WeatherCount = 1; break;
+    case CMD_BiliID:memset(&Bid, 0, sizeof(Bid)); for (i = 0; i < Buf[4]; i++) Bid[i] = Buf[i + 5]; break;
+    case CMD_Weather: WeatherCount = MAKEWORD(Buf[6], Buf[5]); break;
+    }
   }
 }
 
 void keyHandle() {
-  if (shake<1)
+  if (shake < 1)
   {
     if (digitalRead(KEY_SW) == LOW)
     {
-      shake = 6;
+      shake = 15;
       keypress = 1;
     }
     if (digitalRead(KEY_MENU) == LOW)
     {
-      shake = 6;
+      shake = 15;
       keypress = 2;
     }
     if (digitalRead(KEY_MODE) == LOW)
     {
-      shake = 6;
+      shake = 15;
       keypress = 3;
     }
   }
@@ -510,7 +530,7 @@ void keyHandle() {
 
 void get_key()
 {
-  
+
   switch (keypress)
   {
   case 1:SendInter(ESP_KEY_SW, 1); break;
@@ -524,16 +544,16 @@ bool WeatherFlag = false;
 
 void tickerHandle() //到时间时需要执行的任务
 {
-	static int rollcount=0;
-//    Serial.println(millis()); //打印当前时间
-if(!(++rollcount)%60)
-	WeatherFlag = true;
+  static int rollcount = 0;
+  //    Serial.println(millis()); //打印当前时间
+  if (!(++rollcount) % 300)
+    WeatherFlag = true;
   TimeFlag = true;
 }
 
 void shakeHandle() //到时间时需要执行的任务
 {
-  if (shake>0)
+  if (shake > 0)
     shake--;
 }
 
@@ -544,7 +564,7 @@ void binkerHandle()
 }
 
 //gets called when WiFiManager enters configuration mode
-void configModeCallback (WiFiManager *myWiFiManager) {
+void configModeCallback(WiFiManager* myWiFiManager) {
   Serial.println("Entered config mode");
   Serial.println(WiFi.softAPIP());
   //if you used auto generated SSID, print it
@@ -552,14 +572,26 @@ void configModeCallback (WiFiManager *myWiFiManager) {
   //entered config mode, make led toggle faster
   ticker.attach_ms(200, binkerHandle);
 }
+/**
+ * 功能描述：设置点击保存的回调
+ */
+void saveConfigCallback() {
+  Serial.println("Should save config");
+  shouldSaveConfig = true;
+}
+
 
 void setup() {
   WiFi.mode(WIFI_STA); // explicitly set mode, esp defaults to STA+AP
   // put your setup code here, to run once:
   Serial.begin(115200);
-  delay(1000);
+  delay(100);
+  EEPROM.begin(1024);
   //set led pin as output
   pinMode(LED, OUTPUT);
+  pinMode(KEY_MENU, INPUT_PULLUP);
+  pinMode(KEY_SW, INPUT_PULLUP);
+  pinMode(KEY_MODE, INPUT_PULLUP);
   // start ticker with 0.5 because we start in AP mode and try to connect
   ticker.attach_ms(600, binkerHandle);
 
@@ -567,37 +599,99 @@ void setup() {
   //Local intialization. Once its business is done, there is no need to keep it around
   WiFiManager wm;
   //reset settings - for testing
-  // wm.resetSettings();
-	wm.setConfigPortalTimeout(120);
-        //set callback that gets called when connecting to previous WiFi fails, and enters Access Point mode
-        wm.setAPCallback(configModeCallback);
-        //fetches ssid and pass and tries to connect
-        //if it does not connect it starts an access point with the specified name
-        //here  "AutoConnectAP"
-        //and goes into a blocking loop awaiting configuration
-        if (!wm.autoConnect("FUNNYCHIP")) {
-          
-          Serial.println("failed to connect and hit timeout");
-          //reset and try again, or maybe put it to deep sleep
-          ESP.restart();
-          delay(1000);
-        }
+  if (digitalRead(KEY_MENU) == LOW)
+  {
+    wm.resetSettings();
+    Serial.println("Reset Config");
+  }
+  // 配置连接超时
+  wm.setConnectTimeout(60);
+  // 打印调试内容
+  wm.setDebugOutput(false);
+  // 设置最小信号强度
+  wm.setMinimumSignalQuality(30);
+  // 设置固定AP信息
+  //  IPAddress _ip = IPAddress(192, 168, 43, 16);
+  //  IPAddress _gw = IPAddress(192, 168, 4, 1);
+  //  IPAddress _sn = IPAddress(255, 255, 255, 0);
+  //  wm.setAPStaticIPConfig(_ip, _gw, _sn);
+      //set callback that gets called when connecting to previous WiFi fails, and enters Access Point mode
+  if (EEPROM.read(0))
+  {
+    for (int i = 0; i < 7; i++)
+      Address[i] = EEPROM.read(i);
+    for (int i = 7; i < 7 + 20; i++)
+      Bid[i - 7] = EEPROM.read(i);
+  }
+
+  softap_config config;
+  wifi_softap_get_config(&config);
+
+  WiFi.begin(wm.getWiFiSSID(false), wm.getWiFiPass(false));
+  //    Serial.print("ssid ");
+  //    Serial.println(wm.getWiFiSSID(false));
+  //    Serial.print("password ");
+  //    Serial.println(wm.getWiFiPass(false));
+  int Timeout = 0;
+  Serial.println("Wait");
+  while (WiFi.status() != WL_CONNECTED)//WiFi.status() ，这个函数是wifi连接状态，返回wifi链接状态
+  {
+    Serial.print(".");
+    delay(500);
+    if (Timeout++ >= 20)
+    {
+      wm.setAPCallback(configModeCallback);
+      wm.setSaveConfigCallback(saveConfigCallback);
+
+      WiFiManagerParameter custom_mqtt_Address("address", "WeatherAddress", Address, 7);
+      WiFiManagerParameter custom_mqtt_Bid("bilibiliID", "BiliBiliID", Bid, 20);
+
+      wm.addParameter(&custom_mqtt_Bid);
+      wm.addParameter(&custom_mqtt_Address);
+
+      //fetches ssid and pass and tries to connect
+      //if it does not connect it starts an access point with the specified name
+      //here  "AutoConnectAP"
+      //and goes into a blocking loop awaiting configuration
+      Serial.println("link to AP");
+      if (!wm.autoConnect("FUNNYCHIP")) {
+
+        Serial.println("failed to connect and hit timeout");
+        //reset and try again, or maybe put it to deep sleep
+        ESP.restart();
+        delay(100);
+      }
+
+      if (shouldSaveConfig) {
+        // 读取配置页面配置好的信息
+        strcpy(Address, custom_mqtt_Address.getValue());
+        strcpy(Bid, custom_mqtt_Bid.getValue());
+        for (int i = 0; i < 7; i++)
+          EEPROM.write(i, Address[i]);
+        for (int i = 7; i < 7 + 20; i++)
+          EEPROM.write(i, Bid[i - 7]);
+
+        EEPROM.commit();
+        Serial.println("Save OK");
+        Serial.println(Address);
+        Serial.println(Bid);
+      }
+
+    }
+  }
   //if you get here you have connected to the WiFi
   ticker.detach();
   //keep LED on
   digitalWrite(LED, LOW);
-  
-  
-  pinMode(KEY_MENU, INPUT_PULLUP);
   attachInterrupt(KEY_MENU, keyHandle, CHANGE);
-  pinMode(KEY_SW, INPUT_PULLUP);
   attachInterrupt(KEY_SW, keyHandle, CHANGE);
-  pinMode(KEY_MODE, INPUT_PULLUP);
   attachInterrupt(KEY_MODE, keyHandle, CHANGE);
 
   get_time(); //开机取一次时间
   get_weather(); //开机取一次天气
-  
+  get_fans();//获取数据
+
+  SendInter(ESP_Bili_Msg, 0);
   binker.attach(1, tickerHandle); //初始化调度任务，每1秒执行一次tickerHandle()
   shaker.attach_ms(10, shakeHandle); //初始化调度任务，每10毫秒执行一次shakeHandle()
 }
@@ -609,7 +703,7 @@ void loop() {
   {
     TimeFlag = false;
     get_time();//获取时间
- //   get_fans();//获取数据
+    get_fans();//获取数据
   }
   if (WeatherFlag)
   {
