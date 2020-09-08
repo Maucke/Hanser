@@ -10,6 +10,8 @@ Ticker binker;
 Ticker shaker;
 
 bool shouldSaveConfig = false;
+bool TimeFlag = false;
+bool WeatherFlag = false;
 void ICACHE_RAM_ATTR keyHandle();
 void ICACHE_RAM_ATTR tickerHandle();
 void ICACHE_RAM_ATTR binkerHandle();
@@ -31,7 +33,6 @@ char Address[7] = "110000";
 char Key[33] = "ac2f3457cc2d7928a8b4600e9759be1a";
 char Bid[20] = "49890113";
 
-int WeatherCount = 3;
 #define IntTime     1
 
 #define ESP_WeatherNum      0x400
@@ -88,7 +89,7 @@ void SendString(unsigned int Address, String Data)
 
   SendString[2] = (Address >> 8) & 0xff;
   SendString[3] = (Address) & 0xff;
-  SendString[4] = Data.length();
+  SendString[4] = Data.length(); 
   for (int i = 0; i < SendString[4]; i++)
   {
     SendString[5 + i] = Data[i];
@@ -500,9 +501,17 @@ void AnalysisYousamsg(uint8_t* Buf)
   {
     switch (MAKEWORD(Buf[3], Buf[2]))
     {
-    case CMD_Address: for (i = 0; i < Buf[4]; i++) Address[i] = Buf[i + 5]; WeatherCount = 1; break;
-    case CMD_BiliID:memset(&Bid, 0, sizeof(Bid)); for (i = 0; i < Buf[4]; i++) Bid[i] = Buf[i + 5]; break;
-    case CMD_Weather: WeatherCount = MAKEWORD(Buf[6], Buf[5]); break;
+    case CMD_Address: for (i = 0; i < Buf[4]; i++) Address[i] = Buf[i + 5]; WeatherFlag = true; 
+        for (int i = 0; i < 7; i++)
+          EEPROM.write(i, Address[i]);
+
+        EEPROM.commit();break;
+    case CMD_BiliID:memset(&Bid, 0, sizeof(Bid)); for (i = 0; i < Buf[4]; i++) Bid[i] = Buf[i + 5]; 
+        for (int i = 7; i < 7 + 20; i++)
+          EEPROM.write(i, Bid[i - 7]);
+
+        EEPROM.commit();break;
+    case CMD_Weather: WeatherFlag = true; break;
     }
   }
 }
@@ -539,8 +548,6 @@ void get_key()
   }
   keypress = 0;
 }
-bool TimeFlag = false;
-bool WeatherFlag = false;
 
 void tickerHandle() //到时间时需要执行的任务
 {
