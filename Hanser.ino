@@ -80,6 +80,7 @@ char Bid[20] = "49890113";
 #define ESP_KEY_MENU 0x602
 #define ESP_KEY_SW 0x603
 
+#define ESP_SCREEN 0x8014
 unsigned int display_year = 0, display_month = 0, display_day = 0, display_week = 0, display_hour = 0, display_minute = 0, display_second = 0;
 String Week[] = { "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday" };
 
@@ -204,7 +205,6 @@ String ConvertWindDir(String data_content)
 
 //****获取天气子函数 
 void get_weather() {
-  SendString(CMD_Address, Address);
   delay(IntTime);
   if (WiFi.status() == WL_CONNECTED) { //如果 Wi-Fi 连接成功
     //此处往下是取得实况天气的程序
@@ -593,6 +593,7 @@ void setup() {
   // put your setup code here, to run once:
   Serial.begin(115200);
   delay(100);
+  SendInter(ESP_SCREEN,1);//开始
   EEPROM.begin(1024);
   //set led pin as output
   pinMode(LED, OUTPUT);
@@ -631,22 +632,28 @@ void setup() {
       Bid[i - 7] = EEPROM.read(i);
   }
 
-  softap_config config;
-  wifi_softap_get_config(&config);
-
-  WiFi.begin(wm.getWiFiSSID(false), wm.getWiFiPass(false));
+  int Timeout = 0;
+  if(wm.getWiFiSSID(false)=="")
+    Timeout=40;
+  else
+  {
+    WiFi.begin(wm.getWiFiSSID(false), wm.getWiFiPass(false));
+    SendInter(ESP_SCREEN,2);//等待
+    delay(IntTime);
+    Serial.println("Wait");
+  }
   //    Serial.print("ssid ");
   //    Serial.println(wm.getWiFiSSID(false));
   //    Serial.print("password ");
   //    Serial.println(wm.getWiFiPass(false));
-  int Timeout = 0;
-  Serial.println("Wait");
   while (WiFi.status() != WL_CONNECTED)//WiFi.status() ，这个函数是wifi连接状态，返回wifi链接状态
   {
     Serial.print(".");
     delay(500);
-    if (Timeout++ >= 20)
+    if (Timeout++ >= 40)
     {
+      SendInter(ESP_SCREEN,3);//需要配网
+      delay(IntTime);
       wm.setAPCallback(configModeCallback);
       wm.setSaveConfigCallback(saveConfigCallback);
 
@@ -679,6 +686,10 @@ void setup() {
           EEPROM.write(i, Bid[i - 7]);
 
         EEPROM.commit();
+        SendString(CMD_BiliID, Bid);
+        delay(IntTime);
+        SendString(CMD_Address, Address);
+        delay(IntTime);
         Serial.println("Save OK");
         Serial.println(Address);
         Serial.println(Bid);
@@ -686,6 +697,8 @@ void setup() {
 
     }
   }
+  SendInter(ESP_SCREEN,4);//完成
+  delay(IntTime);
   //if you get here you have connected to the WiFi
   ticker.detach();
   //keep LED on
@@ -709,6 +722,8 @@ void loop() {
   if (TimeFlag)
   {
     TimeFlag = false;
+    SendInter(ESP_SCREEN,4);//完成
+    delay(IntTime);
     get_time();//获取时间
     get_fans();//获取数据
   }
