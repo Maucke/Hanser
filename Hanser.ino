@@ -4,6 +4,9 @@
 #include <Ticker.h>
 #include <simpleDSTadjust.h>
 #include <EEPROM.h>
+#include <sys/time.h>                   // struct timeval
+#include <time.h>               
+#include <coredecls.h>                  // settimeofday_cb()
 
 Ticker ticker;
 Ticker binker;
@@ -13,14 +16,13 @@ bool shouldSaveConfig = false;
 bool TimeFlag = false;
 bool WeatherFlag = false;
 void ICACHE_RAM_ATTR keyHandle();
-void ICACHE_RAM_ATTR tickerHandle();
 void ICACHE_RAM_ATTR binkerHandle();
 void ICACHE_RAM_ATTR shakeHandle();
 
 #ifndef LED_BUILTIN
 #define LED_BUILTIN 13 // ESP32 DOES NOT DEFINE LED_BUILTIN
 #endif
-
+ 
 #define KEY_MENU 5
 #define KEY_SW 4
 #define KEY_MODE 0
@@ -357,64 +359,106 @@ int week(int y, int m, int d)
   if (m == 1 || m == 2) m += 12, y = y - 1;
   return (d + 2 * m + 3 * (m + 1) / 5 + y + y / 4 - y / 100 + y / 400 + 1) % 7;
 }
-
-#define NTP_SERVERS "0.ch.pool.ntp.org", "1.ch.pool.ntp.org", "2.ch.pool.ntp.org"
-#define UTC_OFFSET +7
-struct dstRule StartRule = { "CEST", Last, Sun, Mar, 2, 3600 }; // Central European Summer Time = UTC/GMT +2 hours
-struct dstRule EndRule = { "CET", Last, Sun, Oct, 2, 0 };       // Central European Time = UTC/GMT +1 hour
-simpleDSTadjust dstAdjusted(StartRule, EndRule);
-
-void updateNTP() {
-
-  configTime(UTC_OFFSET * 3600, 0, NTP_SERVERS);
-
-  delay(500);
-  while (!time(nullptr)) {
-    Serial.print("#");
-    delay(1000);
-  }
-}
-
+//
+//#define NTP_SERVERS "0.ch.pool.ntp.org", "1.ch.pool.ntp.org", "2.ch.pool.ntp.org"
+//#define UTC_OFFSET +7
+//struct dstRule StartRule = { "CEST", Last, Sun, Mar, 2, 3600 }; // Central European Summer Time = UTC/GMT +2 hours
+//struct dstRule EndRule = { "CET", Last, Sun, Oct, 2, 0 };       // Central European Time = UTC/GMT +1 hour
+//simpleDSTadjust dstAdjusted(StartRule, EndRule);
+//
+//void updateNTP() {
+//
+//  configTime(UTC_OFFSET * 3600, 0, NTP_SERVERS);
+//
+//  delay(500);
+//  while (!time(nullptr)) {
+//    Serial.print("#");
+//    delay(1000);
+//  }
+//}
+//
+//#define TZ              -8       // (utc+) TZ in hours
+//#define DST_MN          0      // use 60mn for summer time in some countries
+//#define TZ_MN           ((TZ)*60)
+//#define TZ_SEC          ((TZ)*3600)
+//#define DST_SEC         ((DST_MN)*60)
+//const String WDAY_NAMES[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+//const String MONTH_NAMES[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+//time_t now;
+//struct tm* timeInfo;
+//void synctime()
+//{
+//  char buff[16];
+//  do
+//  {
+//    now = time(nullptr);
+//    configTime(TZ_SEC, DST_SEC, "pool.ntp.org","0.cn.pool.ntp.org","1.cn.pool.ntp.org");
+//    setenv("TZ", "CET-1CEST,M3.5.0,M10.5.0/3", 0);
+//    timeInfo = localtime(&now);
+//    sprintf_P(buff, PSTR("%04d-%02d-%02d, %s"), timeInfo->tm_year + 1900, timeInfo->tm_mon+1, timeInfo->tm_mday, WDAY_NAMES[timeInfo->tm_wday].c_str());
+//    Serial.println(buff);
+//    sprintf_P(buff, PSTR("%02d:%02d:%02d"), timeInfo->tm_hour, timeInfo->tm_min, timeInfo->tm_sec);
+//    Serial.println(buff);
+//  }while(timeInfo->tm_year + 1900<2020);
+//}
 
 //****获取时间子函数
 void get_time() {
   if (WiFi.status() == WL_CONNECTED) { //如果 Wi-Fi 连接成功
     HTTPClient http;  //开始登陆 
     //不要使用和下面相同的秘钥
-    http.begin("http://quan.suning.com/getSysTime.do");  //苏宁提供服务 
+    http.begin("http://vv.video.qq.com/checktime?otype=json"); 
     int httpCode = http.GET(); //赋值                               
     if (httpCode > 0) { //检查一下是否为0，应该是去检查缓存区是否为空
 
+//      Serial.println(http.getString());
       /*数据解析  //使用 https://arduinojson.org/assistant/ 一个工具可以直接生成程序，挑有用的复制就行*/
-      const size_t capacity = JSON_OBJECT_SIZE(2) + 60;
+//      const size_t capacity = JSON_OBJECT_SIZE(2) + 60;
+//      DynamicJsonBuffer jsonBuffer(capacity);
+//
+//      JsonObject& root = jsonBuffer.parseObject(http.getString());
+//      const char* sysTime1 = root["sysTime1"]; // "20190419131920"
+//      String now_time = sysTime1;
+//      display_year = (now_time.substring(0, 4)).toInt();
+//      display_month = (now_time.substring(4, 6)).toInt();
+//      display_day = (now_time.substring(6, 8)).toInt();
+//      display_hour = (now_time.substring(8, 10)).toInt();
+//      display_minute = (now_time.substring(10, 12)).toInt();
+//      display_second = (now_time.substring(12, 14)).toInt();
+//      display_week = week(display_year, display_month, display_day);   //蔡勒公式
+//      DynamicJsonDocument doc(32);
+//      deserializeJson(doc, json);
+      char buff[300];
+      sscanf(http.getString().c_str(),"QZOutputJson=%s;",buff);
+//      Serial.println(buff);
+      const size_t capacity =128;
       DynamicJsonBuffer jsonBuffer(capacity);
+      JsonObject& root = jsonBuffer.parseObject(buff);
 
-      JsonObject& root = jsonBuffer.parseObject(http.getString());
-
-      const char* sysTime1 = root["sysTime1"]; // "20190419131920"
-      String now_time = sysTime1;
-      display_year = (now_time.substring(0, 4)).toInt();
-      display_month = (now_time.substring(4, 6)).toInt();
-      display_day = (now_time.substring(6, 8)).toInt();
-      display_hour = (now_time.substring(8, 10)).toInt();
-      display_minute = (now_time.substring(10, 12)).toInt();
-      display_second = (now_time.substring(12, 14)).toInt();
-      display_week = week(display_year, display_month, display_day);   //蔡勒公式
-
-      SendInter(ESP_Year, display_year);
-      delay(IntTime);
-      SendInter(ESP_Month, display_month);
-      delay(IntTime);
-      SendInter(ESP_Day, display_day);
-      delay(IntTime);
-      SendInter(ESP_Week, (display_week + 7) % 7);
-      delay(IntTime);
-      SendInter(ESP_Hour, display_hour);
-      delay(IntTime);
-      SendInter(ESP_Minute, display_minute);
-      delay(IntTime);
-      SendInter(ESP_Second, display_second);
-
+      long serverTime = root["t"]; // 1610249263328
+      serverTime+=8*60*60;
+      tm *p;  
+      p=gmtime(&serverTime);  
+//      char s[100]; 
+//      strftime(s, sizeof(s), "%Y-%m-%d %H:%M:%S", p);  
+//      sprintf(buff,"%d-%s",serverTime,s);
+//      Serial.println(buff);
+      if(p->tm_year!=0)
+      {
+            SendInter(ESP_Year, 1900+p->tm_year);
+            delay(IntTime);
+            SendInter(ESP_Month, 1+p->tm_mon);
+            delay(IntTime);
+            SendInter(ESP_Day, p->tm_mday);
+            delay(IntTime);
+            SendInter(ESP_Week, p->tm_wday);
+            delay(IntTime);
+            SendInter(ESP_Hour, p->tm_hour);
+            delay(IntTime);
+            SendInter(ESP_Minute, p->tm_min);
+            delay(IntTime);
+            SendInter(ESP_Second, p->tm_sec);
+      }
     }
     http.end();
     delay(100);
@@ -712,10 +756,11 @@ void setup() {
   get_fans();//获取数据
 
   SendInter(ESP_Bili_Msg, 0);
-  binker.attach(1, tickerHandle); //初始化调度任务，每1秒执行一次tickerHandle()
+  binker.attach(10, tickerHandle); //初始化调度任务，每1秒执行一次tickerHandle()
   shaker.attach_ms(10, shakeHandle); //初始化调度任务，每10毫秒执行一次shakeHandle()
 }
 
+//time_t now;
 void loop() {
   // put your main code here, to run repeatedly
   get_key();//检测按键按下情况
