@@ -747,9 +747,9 @@ void setup() {
   ticker.detach();
   //keep LED on
   digitalWrite(LED, LOW);
-  attachInterrupt(KEY_MENU, keyHandle, CHANGE);
-  attachInterrupt(KEY_SW, keyHandle, CHANGE);
-  attachInterrupt(KEY_MODE, keyHandle, CHANGE);
+  attachInterrupt(KEY_MENU, keyHandle, FALLING);
+  attachInterrupt(KEY_SW, keyHandle, FALLING);
+  attachInterrupt(KEY_MODE, keyHandle, FALLING);
 
   get_time(); //开机取一次时间
   get_weather(); //开机取一次天气
